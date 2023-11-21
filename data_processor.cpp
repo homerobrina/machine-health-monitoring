@@ -56,8 +56,8 @@ int main(int argc, char* argv[]) {
     connOpts.set_clean_session(true);
 
     try {
-        client.connect(connOpts);
-        client.subscribe("/sensors/#", QOS);
+        client.connect(connOpts)->wait();
+        client.subscribe("/sensors/", QOS);
     } catch (mqtt::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return EXIT_FAILURE;

@@ -33,6 +33,29 @@ int main(int argc, char* argv[]) {
     gethostname(hostname, 1024);
     std::string machineId(hostname);
 
+    int frequency = 1000;
+
+    std::string id_sensor_temp("cpu_temperature");
+    std::string id_sensor_usage("cpu_usage");
+
+    nlohmann::json j_inicial, j_sensor_temp, j_sensor_usage;
+
+    j_sensor_temp["sensor_id"] = id_sensor_temp;
+    j_sensor_temp["data_type"] = "float";
+    j_sensor_temp["data_interval"] = frequency;
+
+    j_sensor_usage["sensor_id"] = id_sensor_usage;
+    j_sensor_usage["data_type"] = "float";
+    j_sensor_usage["data_interval"] = frequency;
+
+    j_inicial["machine_id"] = machineId;
+    j_inicial["sensors"] = {j_sensor_temp,j_sensor_usage};
+
+    std::string topic_i = "/sensor_monitors";
+    mqtt::message msg1(topic_i, j_inicial.dump(), QOS, false);
+    std::clog << "message published - topic: " << topic_i << " - message: " << j_inicial.dump() << std::endl;
+    client.publish(msg1);
+
     while (true) {
        // Get the current time in ISO 8601 format.
         auto now = std::chrono::system_clock::now();
@@ -57,7 +80,7 @@ int main(int argc, char* argv[]) {
         client.publish(msg);
 
         // Sleep for some time.
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(frequency));
     }
 
     return EXIT_SUCCESS;
