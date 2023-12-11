@@ -35,6 +35,24 @@ bool sensor1_inactive;
 bool sensor2_inactive;
 bool sensor3_inactive;
 
+std::time_t Iso8601_2_UNIX(std::string timestamp_Iso8601){
+
+    // Converter o timestamp ISO 8601 para um objeto de tempo
+    std::tm tm = {};
+    std::istringstream ss(timestamp_Iso8601);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+
+    if (ss.fail()) {
+        std::cerr << "Erro ao converter o timestamp ISO 8601 para o objeto de tempo." << std::endl;
+        return 1;
+    }
+
+    // Converter o objeto de tempo para o timestamp Unix
+    std::time_t unixTimestamp = std::mktime(&tm);
+
+    return unixTimestamp;
+}
+
 void post_metric(const std::string& machine_id, const std::string& sensor_id, const std::string& timestamp_str, const int value) {
     // Passo 1: Criar io_service
     boost::asio::io_service io_service;
@@ -52,8 +70,11 @@ void post_metric(const std::string& machine_id, const std::string& sensor_id, co
         boost::asio::connect(socket, endpoint_iterator);
 
         // Passo 5: Enviar dados para o Graphite
-        // std::string data = "cpu.usage 42.0 " + std::to_string(std::time(0)) + "\n";
+        std::string data = machine_id + "." + sensor_id + " " + std::to_string(value) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
+        boost::asio::write(socket, boost::asio::buffer(data));
+        // data = machine_id + ".alarms.inactivity." + sensor_id  + " " + std::to_string(sensor1_inactive) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
         // boost::asio::write(socket, boost::asio::buffer(data));
+        std::cout << "Mensagem enviada :" << data << std::endl;
 
         // Passo 6: Fechar a conexão
         socket.close();
@@ -189,6 +210,10 @@ int main(int argc, char* argv[]) {
 
                 if (sensor_id == sensor_id1) {
                     last_timestamp_sensor1 = parseTimestamp(timestamp);
+                } else if (sensor_id == sensor_id2) {
+                    last_timestamp_sensor2 = parseTimestamp(timestamp);
+                } else if (sensor_id == sensor_id3) {
+                    last_timestamp_sensor3 = parseTimestamp(timestamp);
                 }
 
                 // std::cout << "inscrição ok" << std::endl;
