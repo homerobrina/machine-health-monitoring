@@ -12,6 +12,11 @@
 #define GRAPHITE_HOST "graphite"
 #define GRAPHITE_PORT "2003"
 
+std::mutex mutex_send, mutex_vec;
+std::vector<int> last_measures_ava_mem(20,0);
+int index_circ_buffer;
+int window_size_for_av;
+
 std::string clientId = "clientId";
 mqtt::async_client client(BROKER_ADDRESS, clientId);
 
@@ -67,17 +72,83 @@ void post_metric(const std::string& machine_id, const std::string& sensor_id, co
         boost::asio::ip::tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
 
         // Passo 4: Conectar ao servidor
+        mutex_send.lock();
         boost::asio::connect(socket, endpoint_iterator);
 
         // Passo 5: Enviar dados para o Graphite
         std::string data = machine_id + "." + sensor_id + " " + std::to_string(value) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
         boost::asio::write(socket, boost::asio::buffer(data));
-        // data = machine_id + ".alarms.inactivity." + sensor_id  + " " + std::to_string(sensor1_inactive) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
-        // boost::asio::write(socket, boost::asio::buffer(data));
-        std::cout << "Mensagem enviada :" << data << std::endl;
+        // std::cout << "Mensagem enviada :" << data << std::endl;
 
         // Passo 6: Fechar a conexão
         socket.close();
+        mutex_send.unlock();
+    } catch (const std::exception& e) {
+        std::cerr << "Erro: " << e.what() << std::endl;
+    }
+}
+
+void post_inactivity_alarms(const std::string& machine_id, const std::string& timestamp_str) {
+    // Passo 1: Criar io_service
+    boost::asio::io_service io_service;
+
+    try {
+        // Passo 2: Criar um socket baseado no io_service
+        boost::asio::ip::tcp::socket socket(io_service);
+
+        // Passo 3: Resolver o nome do host para obter o endereço IP
+        boost::asio::ip::tcp::resolver resolver(io_service);
+        boost::asio::ip::tcp::resolver::query query(GRAPHITE_HOST, GRAPHITE_PORT);
+        boost::asio::ip::tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
+
+        // Passo 4: Conectar ao servidor
+        mutex_send.lock();
+        boost::asio::connect(socket, endpoint_iterator);
+
+        // Passo 5: Enviar dados para o Graphite
+        std::string data = machine_id + ".alarms.inactivity." + sensor_id1  + " " + std::to_string(sensor1_inactive) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
+        boost::asio::write(socket, boost::asio::buffer(data));
+        // std::cout << "Mensagem enviada :" << data << std::endl;
+        data = machine_id + ".alarms.inactivity." + sensor_id2  + " " + std::to_string(sensor2_inactive) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
+        boost::asio::write(socket, boost::asio::buffer(data));
+        // std::cout << "Mensagem enviada :" << data << std::endl;
+        data = machine_id + ".alarms.inactivity." + sensor_id3  + " " + std::to_string(sensor3_inactive) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
+        boost::asio::write(socket, boost::asio::buffer(data));
+        // std::cout << "Mensagem enviada :" << data << std::endl;
+
+        // Passo 6: Fechar a conexão
+        socket.close();
+        mutex_send.unlock();
+    } catch (const std::exception& e) {
+        std::cerr << "Erro: " << e.what() << std::endl;
+    }
+}
+
+void post_moving_av(const std::string& machine_id, const std::string& timestamp_str, int moving_av){
+    // Passo 1: Criar io_service
+    boost::asio::io_service io_service;
+
+    try {
+        // Passo 2: Criar um socket baseado no io_service
+        boost::asio::ip::tcp::socket socket(io_service);
+
+        // Passo 3: Resolver o nome do host para obter o endereço IP
+        boost::asio::ip::tcp::resolver resolver(io_service);
+        boost::asio::ip::tcp::resolver::query query(GRAPHITE_HOST, GRAPHITE_PORT);
+        boost::asio::ip::tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
+
+        // Passo 4: Conectar ao servidor
+        mutex_send.lock();
+        boost::asio::connect(socket, endpoint_iterator);
+
+        // Passo 5: Enviar dados para o Graphite
+        std::string data = machine_id + "." + sensor_id1 + "_mov_av"  + " " + std::to_string(moving_av) + " " + std::to_string(Iso8601_2_UNIX(timestamp_str)) + "\n";
+        boost::asio::write(socket, boost::asio::buffer(data));
+        // std::cout << "Mensagem enviada :" << data << std::endl;
+
+        // Passo 6: Fechar a conexão
+        socket.close();
+        mutex_send.unlock();
     } catch (const std::exception& e) {
         std::cerr << "Erro: " << e.what() << std::endl;
     }
@@ -101,7 +172,7 @@ std::vector<std::string> split(const std::string &str, char delim) {
     return tokens;
 }
 
-void check_inactivity() {
+void check_inactivity(const std::string& machine_id) {
     while (true) {
         auto now = std::chrono::system_clock::now();
         std::time_t now_c = std::chrono::system_clock::to_time_t(now);
@@ -118,27 +189,55 @@ void check_inactivity() {
         auto diff3_milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(diff3);
         
         if (diff1_milliseconds.count() >= 5*freq_sensor_id1 && !sensor1_inactive){
-            std::cout << "SENSOR INATIVO - ID: " << sensor_id1 << std::endl;
+            // std::cout << "SENSOR INATIVO - ID: " << sensor_id1 << std::endl;
             sensor1_inactive = true;
         } else if (diff1_milliseconds.count() < 5*freq_sensor_id1 && sensor1_inactive){
             sensor1_inactive = false;
-            std::cout << "SENSOR REATIVADO - ID: " << sensor_id1 << std::endl;
+            // std::cout << "SENSOR REATIVADO - ID: " << sensor_id1 << std::endl;
         }
         if (diff2_milliseconds.count() >= 5*freq_sensor_id2 && !sensor2_inactive){
-            std::cout << "SENSOR INATIVO - ID: " << sensor_id2 << std::endl;
+            // std::cout << "SENSOR INATIVO - ID: " << sensor_id2 << std::endl;
             sensor2_inactive = true;
         } else if (diff2_milliseconds.count() < 5*freq_sensor_id2 && sensor2_inactive){
             sensor2_inactive = false;
-            std::cout << "SENSOR REATIVADO - ID: " << sensor_id2 << std::endl;
+            // std::cout << "SENSOR REATIVADO - ID: " << sensor_id2 << std::endl;
         }
         if (diff3_milliseconds.count() >= 5*freq_sensor_id3 && !sensor3_inactive){
-            std::cout << "SENSOR INATIVO - ID: " << sensor_id3 << std::endl;
+            // std::cout << "SENSOR INATIVO - ID: " << sensor_id3 << std::endl;
             sensor3_inactive = true;
         } else if (diff3_milliseconds.count() < 5*freq_sensor_id3 && sensor3_inactive){
             sensor3_inactive = false;
-            std::cout << "SENSOR REATIVADO - ID: " << sensor_id3 << std::endl;
+            // std::cout << "SENSOR REATIVADO - ID: " << sensor_id3 << std::endl;
         }
+
+        post_inactivity_alarms(machine_id, timestamp);
+
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+}
+
+void calculate_moving_av(int window_size, const std::string& machine_id){
+    while(true) {
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+        std::tm* now_tm = std::localtime(&now_c);
+        std::stringstream ss;
+        ss << std::put_time(now_tm, "%FT%TZ");
+        std::string timestamp = ss.str();
+
+        int sum = 0;
+        mutex_vec.lock();
+        for (int i = 0; i < window_size; i++)
+        {
+            sum = sum + last_measures_ava_mem[i];
+        }
+        mutex_vec.unlock();
+
+        int moving_av = sum/window_size;
+
+        post_moving_av(machine_id, timestamp, moving_av);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(freq_sensor_id1));
     }
 }
 
@@ -160,9 +259,9 @@ int main(int argc, char* argv[]) {
                 sensor_id2 = j["sensors"][1]["sensor_id"];
                 sensor_id3 = j["sensors"][2]["sensor_id"];
 
-                std::cout << "sensor_id1: " << sensor_id1 << std::endl;
-                std::cout << "sensor_id2: " << sensor_id2 << std::endl;
-                std::cout << "sensor_id3: " << sensor_id3 << std::endl;
+                // std::cout << "sensor_id1: " << sensor_id1 << std::endl;
+                // std::cout << "sensor_id2: " << sensor_id2 << std::endl;
+                // std::cout << "sensor_id3: " << sensor_id3 << std::endl;
 
                 // Frequencia de cada sensor
                 freq_sensor_id1 = j["sensors"][0]["data_interval"];
@@ -193,23 +292,30 @@ int main(int argc, char* argv[]) {
                 client.subscribe(topic_sensor2, QOS);
                 client.subscribe(topic_sensor3, QOS);
 
+                std::thread t_check_inactivity(check_inactivity, machine_id);
+                t_check_inactivity.detach();
+
+                index_circ_buffer = 0;
+                window_size_for_av = 30;
+
+                std::thread t_calculate_moving_av(calculate_moving_av, window_size_for_av, machine_id);
+                t_calculate_moving_av.detach();
+
             } else {
                 std::string topic = msg->get_topic();
                 auto topic_parts = split(topic, '/');
                 std::string machine_id = topic_parts[2];
                 std::string sensor_id = topic_parts[3];
 
-                // std::cout << "sensor_id: " << sensor_id << std::endl;
-                // std::cout << "sensor_id1: " << sensor_id1 << std::endl;
-
                 std::string timestamp = j["timestamp"];
                 int value = j["value"];
 
-                std::thread t_check_inactivity(check_inactivity);
-                t_check_inactivity.detach();
-
                 if (sensor_id == sensor_id1) {
                     last_timestamp_sensor1 = parseTimestamp(timestamp);
+                    mutex_vec.lock();
+                    last_measures_ava_mem[index_circ_buffer] = value;
+                    index_circ_buffer = (index_circ_buffer + 1) % window_size_for_av;
+                    mutex_vec.unlock();
                 } else if (sensor_id == sensor_id2) {
                     last_timestamp_sensor2 = parseTimestamp(timestamp);
                 } else if (sensor_id == sensor_id3) {
@@ -218,6 +324,8 @@ int main(int argc, char* argv[]) {
 
                 // std::cout << "inscrição ok" << std::endl;
                 post_metric(machine_id, sensor_id, timestamp, value);
+
+
             }
         }
     };
