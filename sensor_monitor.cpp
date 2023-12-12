@@ -18,6 +18,7 @@
 std::string clientId = "sensor-monitor";
 mqtt::client client(BROKER_ADDRESS, clientId);
 std::mutex mutex;
+bool init_config_ok = false;
 
 // Estimativa de quanto da memória está disponível para iniciar novos processos
 long getAvailableMemory()
@@ -121,6 +122,29 @@ double calculateCpuUsage()
     return cpuUsagePercentage;
 }
 
+
+void publish_init_msg(nlohmann::json j_inicial, int freq_init_msg){
+
+    while (true) {
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+        std::tm *now_tm = std::localtime(&now_c);
+        std::stringstream ss;
+        ss << std::put_time(now_tm, "%FT%TZ");
+        std::string timestamp = ss.str();
+
+        std::string topic_i = "/sensor_monitors";
+        mqtt::message msg1(topic_i, j_inicial.dump(), QOS, false);
+        std::clog << "message published - topic: " << topic_i << " - message: " << j_inicial.dump() << std::endl;
+        
+        mutex.lock();
+        client.publish(msg1);
+        mutex.unlock();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(freq_init_msg));
+    }
+}
+
 // Função que lê e publica a memória disponível
 void read_and_publish_ava_mem(std::string machineId, int freq_sensor_ava_memory, std::string id_sensor_ava_mem)
 {
@@ -217,15 +241,16 @@ void read_and_publish_cpu_use(std::string machineId, int freq_sensor_cpu_use, st
 int main(int argc, char *argv[])
 {
 
-    if (argc < 4)
+    if (argc < 5)
     {
-        std::cerr << "Digite frequências válidas: " << argv[0] << " <freq_available_mem> <freq_active_mem> <freq_cpu_usage>";
+        std::cerr << "Digite frequências válidas: " << argv[0] << " <freq_available_mem> <freq_active_mem> <freq_cpu_usage> <freq_init_msg>";
         return EXIT_FAILURE;
     }
 
     int freq_sensor_ava_mem = std::atoi(argv[1]);
     int freq_sensor_act_mem = std::atoi(argv[2]);
     int freq_sensor_cpu_use = std::atoi(argv[3]);
+    int freq_init_msg = std::atoi(argv[4]);
 
     // Connect to the MQTT broker.
     mqtt::connect_options connOpts;
@@ -270,17 +295,13 @@ int main(int argc, char *argv[])
     j_inicial["machine_id"] = machineId;
     j_inicial["sensors"] = {j_sensor_ava_mem, j_sensor_act_mem, j_sensor_cpu_use};
 
-    // Criando o tópico inicial e publicando a mensagem inicial
-    std::string topic_i = "/sensor_monitors";
-    mqtt::message msg1(topic_i, j_inicial.dump(), QOS, false);
-    std::clog << "message published - topic: " << topic_i << " - message: " << j_inicial.dump() << std::endl;
-    client.publish(msg1);
-
     // Cria uma thread para realizar cada leitura e envio de informação
+    std::thread thread_initial_message(publish_init_msg, j_inicial, freq_init_msg);
     std::thread thread_sensor_ava_mem(read_and_publish_ava_mem, machineId, freq_sensor_ava_mem, id_sensor_ava_mem);
     std::thread thread_sensor_act_mem(read_and_publish_act_mem, machineId, freq_sensor_act_mem, id_sensor_act_mem);
     std::thread thread_sensor_cpu_use(read_and_publish_cpu_use, machineId, freq_sensor_cpu_use, id_sensor_cpu_use);
 
+    thread_initial_message.join();
     thread_sensor_ava_mem.join();
     thread_sensor_act_mem.join();
     thread_sensor_cpu_use.join();

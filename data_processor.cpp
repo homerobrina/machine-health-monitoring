@@ -14,8 +14,10 @@
 #define WINDOW_SIZE_FOR_AV 30 // Número de amostras para a média móvel
 
 std::mutex mutex_send, mutex_vec;
-std::vector<int> last_measures_ava_mem(20, 0);
+std::vector<int> last_measures_ava_mem(30, 0);
 int index_circ_buffer;
+
+bool init_config_ok = false;
 
 std::string clientId = "clientId";
 mqtt::async_client client(BROKER_ADDRESS, clientId);
@@ -272,53 +274,60 @@ int main(int argc, char *argv[])
 
             if (msg->get_topic() == "/sensor_monitors")
             {
-                // ID da máquina comum a todos
-                std::string machine_id = j["machine_id"];
+                if (init_config_ok == false)
+                {
+                    client.subscribe(msg->get_topic(), QOS);
 
-                // ID de cada sensor
-                sensor_id1 = j["sensors"][0]["sensor_id"];
-                sensor_id2 = j["sensors"][1]["sensor_id"];
-                sensor_id3 = j["sensors"][2]["sensor_id"];
+                    // ID da máquina comum a todos
+                    std::string machine_id = j["machine_id"];
 
-                // std::cout << "sensor_id1: " << sensor_id1 << std::endl;
-                // std::cout << "sensor_id2: " << sensor_id2 << std::endl;
-                // std::cout << "sensor_id3: " << sensor_id3 << std::endl;
+                    // ID de cada sensor
+                    sensor_id1 = j["sensors"][0]["sensor_id"];
+                    sensor_id2 = j["sensors"][1]["sensor_id"];
+                    sensor_id3 = j["sensors"][2]["sensor_id"];
 
-                // Frequencia de cada sensor
-                freq_sensor_id1 = j["sensors"][0]["data_interval"];
-                freq_sensor_id2 = j["sensors"][1]["data_interval"];
-                freq_sensor_id3 = j["sensors"][2]["data_interval"];
+                    // std::cout << "sensor_id1: " << sensor_id1 << std::endl;
+                    // std::cout << "sensor_id2: " << sensor_id2 << std::endl;
+                    // std::cout << "sensor_id3: " << sensor_id3 << std::endl;
 
-                auto now = std::chrono::system_clock::now();
-                std::time_t now_c = std::chrono::system_clock::to_time_t(now);
-                std::tm *now_tm = std::localtime(&now_c);
-                std::stringstream ss;
-                ss << std::put_time(now_tm, "%FT%TZ");
-                std::string timestamp = ss.str();
+                    // Frequencia de cada sensor
+                    freq_sensor_id1 = j["sensors"][0]["data_interval"];
+                    freq_sensor_id2 = j["sensors"][1]["data_interval"];
+                    freq_sensor_id3 = j["sensors"][2]["data_interval"];
 
-                // Timestamp da primeira mensagem recebida
-                last_timestamp_sensor1 = parseTimestamp(timestamp);
-                last_timestamp_sensor2 = parseTimestamp(timestamp);
-                last_timestamp_sensor3 = parseTimestamp(timestamp);
+                    auto now = std::chrono::system_clock::now();
+                    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+                    std::tm *now_tm = std::localtime(&now_c);
+                    std::stringstream ss;
+                    ss << std::put_time(now_tm, "%FT%TZ");
+                    std::string timestamp = ss.str();
 
-                // Criando e assinando os tópicos de cada sensor
-                std::string topic_sensor1 = "/sensors/" + machine_id + "/" + sensor_id1;
-                std::string topic_sensor2 = "/sensors/" + machine_id + "/" + sensor_id2;
-                std::string topic_sensor3 = "/sensors/" + machine_id + "/" + sensor_id3;
+                    // Timestamp da primeira mensagem recebida
+                    last_timestamp_sensor1 = parseTimestamp(timestamp);
+                    last_timestamp_sensor2 = parseTimestamp(timestamp);
+                    last_timestamp_sensor3 = parseTimestamp(timestamp);
 
-                client.subscribe(topic_sensor1, QOS);
-                client.subscribe(topic_sensor2, QOS);
-                client.subscribe(topic_sensor3, QOS);
+                    // Criando e assinando os tópicos de cada sensor
+                    std::string topic_sensor1 = "/sensors/" + machine_id + "/" + sensor_id1;
+                    std::string topic_sensor2 = "/sensors/" + machine_id + "/" + sensor_id2;
+                    std::string topic_sensor3 = "/sensors/" + machine_id + "/" + sensor_id3;
 
-                // Threads para checar inatividade e calcular média móvel
-                std::thread t_check_inactivity(check_inactivity, machine_id);
-                t_check_inactivity.detach();
+                    client.subscribe(topic_sensor1, QOS);
+                    client.subscribe(topic_sensor2, QOS);
+                    client.subscribe(topic_sensor3, QOS);
 
-                index_circ_buffer = 0;
-                // WINDOW_SIZE_FOR_AV = 30;
+                    // Threads para checar inatividade e calcular média móvel
+                    std::thread t_check_inactivity(check_inactivity, machine_id);
+                    t_check_inactivity.detach();
 
-                std::thread t_calculate_moving_av(calculate_moving_av, machine_id);
-                t_calculate_moving_av.detach();
+                    index_circ_buffer = 0;
+                    // WINDOW_SIZE_FOR_AV = 30;
+
+                    std::thread t_calculate_moving_av(calculate_moving_av, machine_id);
+                    t_calculate_moving_av.detach();
+
+                    init_config_ok = true;
+                }
             }
             else
             {
